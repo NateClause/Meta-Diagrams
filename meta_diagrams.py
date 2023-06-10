@@ -156,6 +156,7 @@ def my_swaps(Rrows, Rcols, Urows, Ucols, i):
 
 
 def tcase_1(Rrows, Rcols, Urows, Ucols, i, intervals, pos_inds):
+    maxn = len(Rcols) - 1
     lows = get_lows(Rcols)
     orig_lows = lows
     old_i = np.where(intervals == i)
@@ -180,6 +181,8 @@ def tcase_1(Rrows, Rcols, Urows, Ucols, i, intervals, pos_inds):
             k = j
         if orig_lows[j] == i+1:
             l = j
+    if k == np.inf and l == np.inf:
+        return Rrows, Rcols, Urows, Ucols, intervals, pos_inds
     # Case 1.1
     if k < np.inf and l < np.inf:
         if i in oRcols[l]:
@@ -193,6 +196,12 @@ def tcase_1(Rrows, Rcols, Urows, Ucols, i, intervals, pos_inds):
                 Urows[l] = Urows[l] ^ Urows[k]
                 intervals[old_i], intervals[old_ip1] = old_intervals[old_i], old_intervals[old_ip1]
         # Case 1.2 empty as only change is the swaps already performed.
+    elif l < np.inf:
+        if i in oRcols[l]:
+            #Rcols[k] = Rcols[l] ^ Rcols[k]
+            #Urows[l] = Urows[l] ^ Urows[k]
+            intervals[old_i], intervals[old_ip1] = old_intervals[old_i], old_intervals[old_ip1]
+
     return Rrows, Rcols, Urows, Ucols, intervals, pos_inds
 
 
@@ -346,19 +355,17 @@ def mrk(simplices, fxvals, vrvals):
 
     n = len(fxvals)
     mrk = []
-    st1 = time.time()
     D = get_boundary(simplices)
-    print(f"the boundary computation took {time.time() - st1} seconds")
+    print(f"Initial boundary computation along gamma_1 complete.")
 
     st2 = time.time()
     R, U, lows = compute_RU(D)
-    print(f"the boundary reduction took {time.time() - st2} seconds")
+    print(f"Boundary reduction along gamma_1 complete, moving to transpositions")
 
     intervals, pos_inds = compute_pairs(R, U, lows)
     simplices.append([-1])
     vrvals.append(np.inf)
     dims.append(np.inf)
-    print(f"computed R-U decomposition")
 
     Rrows = [set(np.where(R[i] > 0)[0]) for i in range(len(R))]
     Rcols = [set(np.where(R[:, i] > 0)[0]) for i in range(len(R))]
@@ -392,9 +399,8 @@ def mrk(simplices, fxvals, vrvals):
                 mrk_temp[k][1] = n
         mrk_real = get_true_intervals(mrk_temp, orig_simplices, vrvals)
         mrk.append(mrk_real)
-
-    orig_simplices.append(-1)
-    fdims = [dims[int(intervals[k][0])] for k in range(len(intervals))]
+        orig_simplices.append(-1)
+        fdims = [dims[int(intervals[k][0])] for k in range(len(intervals))]
     return mrk, fdims
 
 
@@ -474,46 +480,39 @@ def get_mdgm(fmrk, b, d):
 
 
 if __name__ == '__main__':
-    myn = 8
-
-    x = np.array([[np.sin(theta), np.cos(theta)] for theta in np.linspace(0, 2*np.pi, num=myn, endpoint=False)])
-    x1 = np.array([[pt[0], pt[1] + 2] for pt in x if pt[1] != -2])
-    x = np.concatenate((x, x1))
-    fig, ax = plt.subplots()
-    ax.scatter(x[:, 0], x[:, 1])
-    ax.axis(xmin=-1.1, xmax=1.1, ymin=-2.1, ymax=2.1)
-    ax.axis('equal')
-    plt.title("figure 8 with Euclidean distance")
-    fig.savefig(f"fig8.pdf", format='pdf', dpi=1200)
-    plt.show()
-
-    fx = np.around(np.array([pt[1] for pt in x]), decimals=6)
+    # input the data as a point cloud
+    point_cloud_file = 'fig8pts.txt'
+    x = np.loadtxt(point_cloud_file)
     dx = pdist(x)
     dx = squareform(dx, 'tomatrix')
     dx = np.around(dx, decimals=6)
 
+    # define the function for a function-Rips bifiltration. This is the height function
+    fx = np.around(np.array([pt[1] for pt in x]), decimals=6)
+
+    # define the maximal dimension of simplices to include
     homdim = 2
-    mythresh = 1.9
-    simplices, fxvals, vrvals = get_filt_values(dx, fx, homdim, thresh=mythresh)
+
+    # define a threshold for Vietoris-Rips values of simplices to include
+    threshold = np.max(dx)/2
+
+    # compute all simplices, and their corresponding function and Vietoris-Rips values, ordered lexicographically
+    simplices, fxvals, vrvals = get_filt_values(dx, fx, homdim, thresh=threshold)
     print(f"the number of dim0 simplices = {np.sum(np.array([1 for i in range(len(simplices)) if len(simplices[i]) == 1]))}")
     print(f"the number of dim1 simplices = {np.sum(np.array([1 for i in range(len(simplices)) if len(simplices[i]) == 2]))}")
     print(f"the number of dim2 simplices = {np.sum(np.array([1 for i in range(len(simplices)) if len(simplices[i]) == 3]))}")
-    print([simplex for simplex in simplices if len(simplex) == 2])
-    sim2s = np.array([simplex for simplex in simplices if len(simplex) == 3])
-    start_time = time.time()
+    print(f"the total number of simplices is {len(simplices)}")
+
+    # compute the meta-rank
     pre_mrk, dims = mrk(simplices, fxvals, vrvals)
-    ft = time.time()
     dims = [a-1 for a in dims]
-    print(f"--- %s seconds to compute pre_mrk for {len(simplices)} simplices --- {(ft - start_time)}")
 
     final_fvals = get_final_fvals(fxvals)
     post_mrk = [pre_mrk[index] for index in final_fvals]
     fmrk = get_fullmrk(post_mrk)
     for j in range(len(fmrk)):
         for k in range(len(fmrk[j])):
-            print(f"fmrk[{j}][{k}] is {fmrk[j][k]}")
-
-    print(f"--- %s seconds to compute pre_mrk for {len(simplices)} simplices --- {(ft - start_time)}")
+            print(f"mrk_M([{fxvals[final_fvals[k]]}, {fxvals[final_fvals[j]]}]) is {fmrk[j][k]}")
 
     fpairs = []
     for i in range(len(final_fvals)):
@@ -521,11 +520,34 @@ if __name__ == '__main__':
             fpairs.append([final_fvals[i], final_fvals[j]])
     fpairs = np.array(fpairs)
     rfpairs = np.array([[fxvals[rval[0]], fxvals[rval[1]]] for rval in fpairs])
-    fp1 = fpairs[:, 0]
-    pfp1 = [fxvals[ind] for ind in fp1]
-    fp2 = fpairs[:, 1]
-    pfp2 = [fxvals[ind] for ind in fp2]
 
+    fmdgmp = []
+    fmdgmn = []
+    for i in range(len(fmrk)):
+        rowmdgmp = []
+        rowmdgmn = []
+        for j in range(i, -1, -1):
+            mdgmp, mdgmn = get_mdgm(fmrk, j, i)
+            rowmdgmp.append(mdgmp)
+            rowmdgmn.append(mdgmn)
+        rowmdgmp.reverse()
+        rowmdgmn.reverse()
+        fmdgmp.append(rowmdgmp)
+        fmdgmn.append(rowmdgmn)
+
+    nzpts = []
+    for i in range(len(fmdgmp)):
+        for j in range(len(fmdgmp[i])):
+            for k in range(len(fmdgmp[i][j])):
+                interval = fmdgmp[i][j][k]
+                if interval[0] < np.inf:
+                    if interval[1] - interval[0] > 0.001 and dims[k] <= homdim:
+                        nzpts.append([i, j])
+                        break
+    nzpts = np.array(nzpts)
+    pfp1 = [fxvals[int(final_fvals[ind])] for ind in nzpts[:, 1]]
+    pfp2 = [fxvals[int(final_fvals[ind])] for ind in nzpts[:, 0]]
+    rfpairs = np.vstack((pfp1, pfp2)).T
     fig, axs = plt.subplots(1, 2)
     mng = plt.get_current_fig_manager()
 
@@ -535,33 +557,28 @@ if __name__ == '__main__':
     axs[0].axis('equal')
     ylims = axs[0].get_ylim()
     xlims = axs[0].get_xlim()
-    bpt = fpairs[0][0]
-    dpt = fpairs[0][1]
-    pbpt = fxvals[bpt]
-    pdpt = fxvals[dpt]
     mkpossibles = ["s", "D", "v"]
     colorpossibles = ["r", "b"]
-    dests = 0
+    num_clicks = 0
+
     while True:
-        dests += 1
-        print(final_fvals)
         mdgmpt = plt.ginput(n=1, timeout=0)
-        axs[0].scatter(pbpt, pdpt, c='k', zorder=3)
+        if num_clicks >= 1:
+            axs[0].scatter(pbpt, pdpt, c='k', zorder=3)
+        num_clicks += 1
+
         mpt = np.array([mdgmpt[0][0], mdgmpt[0][1]])
         dlist = np.array([np.abs(a[0]-mpt[0])**2 + np.abs(a[1]-mpt[1])**2 for a in rfpairs])
         idx = dlist.argmin()
-        fpt = fpairs[idx]
-        bpt = fpt[0]
-        dpt = fpt[1]
-        pbpt = fxvals[fpt[0]]
-        pdpt = fxvals[fpt[1]]
+        pbpt = rfpairs[idx][0]
+        pdpt = rfpairs[idx][1]
         axs[0].scatter(pbpt, pdpt, c='r', zorder=3)
         axs[0].set(xlim=xlims, ylim=ylims)
-        bind = np.where(final_fvals == bpt)[0][0]
-        dind = np.where(final_fvals == dpt)[0][0]
+        bind = nzpts[idx][1]
+        dind = nzpts[idx][0]
 
-        mdgmp, mdgmn = get_mdgm(fmrk, bind, dind)
-
+        mdgmp = np.array(fmdgmp[dind][bind])
+        mdgmn = np.array(fmdgmn[dind][bind])
         mycolors = []
         mks = []
         myx = []
@@ -677,8 +694,3 @@ if __name__ == '__main__':
         axs[1].plot([-1*offset, maxy+offset], [-1*offset, maxy+offset], c='k')
 
         axs[1].axis(xmin=-1*offset, ymin=-1*offset, xmax=maxy+offset, ymax=maxy+offset)
-
-        fig.savefig(f"mdgm{dests}.pdf", format='pdf', dpi=1200)
-
-
-
